@@ -19,33 +19,42 @@ package io.joshworks.snappy.extras.jdbc;
 
 import com.zaxxer.hikari.HikariConfig;
 import com.zaxxer.hikari.HikariDataSource;
+import io.joshworks.snappy.extras.jdbc.stream.ResultSetIterator;
+import io.joshworks.snappy.extras.jdbc.stream.Row;
 import org.apache.commons.dbutils.QueryRunner;
 import org.apache.commons.dbutils.ResultSetHandler;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import sun.plugin.dom.exception.InvalidStateException;
 
 import javax.sql.DataSource;
 import java.beans.PropertyDescriptor;
+import java.io.Closeable;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
+import java.io.UncheckedIOException;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.SQLException;
 import java.util.Objects;
 import java.util.Properties;
+import java.util.Spliterator;
+import java.util.Spliterators;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
+import java.util.function.Consumer;
+import java.util.function.Function;
+import java.util.stream.Stream;
+import java.util.stream.StreamSupport;
 
 /**
  * Created by Josh Gontijo on 3/25/17.
  */
-public class JdbcRepository {
+public class Jdbc {
 
-    private static final Logger logger = LoggerFactory.getLogger(JdbcRepository.class);
+    private static final Logger logger = LoggerFactory.getLogger(Jdbc.class);
 
     private static final String PROPERTIES_NAME = "jdbc.properties";
 
@@ -58,15 +67,19 @@ public class JdbcRepository {
         queryRunner = new QueryRunner(ds);
     }
 
+    public static synchronized void init(Properties properties) {
+        init(new HikariDataSource(new HikariConfig(properties)));
+    }
+
     public static synchronized void init() {
         InputStream is = Thread.currentThread().getContextClassLoader().getResourceAsStream(PROPERTIES_NAME);
         if (is == null) {
-            throw new InvalidStateException("Could not find " + PROPERTIES_NAME);
+            throw new IllegalStateException("Could not find " + PROPERTIES_NAME);
         }
         try {
             Properties props = new Properties();
             props.load(is);
-            init(new HikariDataSource(new HikariConfig(props)));
+            init(props);
         } catch (Exception e) {
             throw new JdbcException(e);
         }
@@ -141,6 +154,7 @@ public class JdbcRepository {
 
     public static <T> T query(String sql, ResultSetHandler<T> rsh, Object... params) {
         try {
+            params = params == null ? new Object[]{} : params;
             return queryRunner.query(sql, rsh, params);
         } catch (SQLException e) {
             throw new JdbcException(e);
@@ -153,6 +167,27 @@ public class JdbcRepository {
         } catch (SQLException e) {
             throw new JdbcException(e);
         }
+    }
+
+    public static Stream<Row> query(String sql, Object... params) {
+        try {
+            ResultSetIterator resultSetIterator = new ResultSetIterator(dataSource.getConnection(), sql, params);
+            return StreamSupport.stream(Spliterators.spliteratorUnknownSize(resultSetIterator, Spliterator.NONNULL | Spliterator.ORDERED), false)
+                    .onClose(asUncheckedRunnable(resultSetIterator));
+
+        } catch (SQLException e) {
+            throw new JdbcException(e);
+        }
+    }
+
+    private static Runnable asUncheckedRunnable(Closeable c) {
+        return () -> {
+            try {
+                c.close();
+            } catch (IOException e) {
+                throw new UncheckedIOException(e);
+            }
+        };
     }
 
     public static int update(String sql) {
@@ -233,39 +268,45 @@ public class JdbcRepository {
 
     //------- Async ---------
     public static CompletableFuture<int[]> asyncBatch(String sql, Object[][] params) {
-        return CompletableFuture.supplyAsync(() -> JdbcRepository.batch(sql, params), executor);
+        return CompletableFuture.supplyAsync(() -> Jdbc.batch(sql, params), executor);
     }
 
-    public static <T> T asyncQuery(String sql, ResultSetHandler<T> rsh, Object... params) {
-        return JdbcRepository.query(sql, rsh, params);
+    public static <T> CompletableFuture<T> asyncQuery(String sql, ResultSetHandler<T> rsh, Object... params) {
+        return CompletableFuture.supplyAsync(() -> Jdbc.query(sql, rsh, params), executor);
     }
 
-    public static <T> CompletableFuture<T> asyncQuery(String sql, ResultSetHandler<T> rsh) {
-        return CompletableFuture.supplyAsync(() -> JdbcRepository.query(sql, rsh), executor);
+    public static void asyncQuery(String sql, Consumer<Row> consumer, Object... params) {
+        asyncQuery(sql, r -> r, consumer, params);
+    }
+
+    public static <R> void asyncQuery(String sql, Function<Row, ? extends R> mapper, Consumer<R> consumer, Object... params) {
+        CompletableFuture.runAsync(() -> Jdbc.query(sql, params)
+                .map(mapper)
+                .forEach(consumer), executor);
     }
 
     public static CompletableFuture<Integer> asyncUpdate(String sql) {
-        return CompletableFuture.supplyAsync(() -> JdbcRepository.update(sql), executor);
+        return CompletableFuture.supplyAsync(() -> Jdbc.update(sql), executor);
     }
 
     public static CompletableFuture<Integer> asyncUpdate(String sql, Object param) {
-        return CompletableFuture.supplyAsync(() -> JdbcRepository.update(sql, param), executor);
+        return CompletableFuture.supplyAsync(() -> Jdbc.update(sql, param), executor);
     }
 
     public static CompletableFuture<Integer> asyncUpdate(String sql, Object... params) {
-        return CompletableFuture.supplyAsync(() -> JdbcRepository.update(sql, params), executor);
+        return CompletableFuture.supplyAsync(() -> Jdbc.update(sql, params), executor);
     }
 
     public static <T> CompletableFuture<T> asyncInsert(String sql, ResultSetHandler<T> rsh) {
 
-        return CompletableFuture.supplyAsync(() -> JdbcRepository.insert(sql, rsh), executor);
+        return CompletableFuture.supplyAsync(() -> Jdbc.insert(sql, rsh), executor);
     }
 
     public static <T> CompletableFuture<T> asyncIinsert(String sql, ResultSetHandler<T> rsh, Object... params) {
-        return CompletableFuture.supplyAsync(() -> JdbcRepository.insert(sql, rsh, params), executor);
+        return CompletableFuture.supplyAsync(() -> Jdbc.insert(sql, rsh, params), executor);
     }
 
     public static <T> CompletableFuture<T> asyncInsertBatch(String sql, ResultSetHandler<T> rsh, Object[][] params) {
-        return CompletableFuture.supplyAsync(() -> JdbcRepository.insertBatch(sql, rsh, params), executor);
+        return CompletableFuture.supplyAsync(() -> Jdbc.insertBatch(sql, rsh, params), executor);
     }
 }

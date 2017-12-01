@@ -25,7 +25,7 @@ import java.util.regex.Pattern;
 /**
  * Tool to run database scripts
  */
-public class ScriptRunner {
+class ScriptRunner {
 
     /**
      * regex to detect delimiter.
