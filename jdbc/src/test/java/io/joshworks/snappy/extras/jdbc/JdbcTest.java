@@ -1,14 +1,23 @@
 package io.joshworks.snappy.extras.jdbc;
 
-import io.joshworks.snappy.extras.jdbc.stream.Row;
+import org.junit.After;
+import org.junit.AfterClass;
+import org.junit.BeforeClass;
 import org.junit.Test;
+
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
+
+import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertNotNull;
+import static org.junit.Assert.assertTrue;
+import static org.junit.Assert.fail;
 
 public class JdbcTest {
 
-    @Test
-    public void init() throws InterruptedException {
+    @BeforeClass
+    public static void setUp() {
         Jdbc.init();
-
         Jdbc.update("CREATE TABLE PUBLIC.TEST_TABLE (" +
                 "a INTEGER NOT NULL, " +
                 "b CHAR(25), " +
@@ -20,19 +29,85 @@ public class JdbcTest {
                 "h TIMESTAMP, " +
                 "i VARCHAR(255), " +
                 "PRIMARY KEY (a))");
+    }
+
+    @AfterClass
+    public static void shutdown() {
+        System.out.println("Releasing connection");
+        Jdbc.close();
+        System.out.println("Connection released");
+    }
+
+    @After
+    public void cleanup() {
+        Jdbc.update("DELETE FROM PUBLIC.TEST_TABLE");
+    }
+
+    @Test
+    public void typeMapper() throws InterruptedException {
         Jdbc.update("INSERT INTO PUBLIC.TEST_TABLE (a, b, c, d, e, f, g, h, i) VALUES (1, 'a', 1234567890123444, 15.5, 20.12, 45.666, true, '2015-10-01', 'josh1')");
         Jdbc.update("INSERT INTO PUBLIC.TEST_TABLE (a, b, c, d, e, f, g, h, i) VALUES (2, 'a', 1234567890123444, 15.5, 20.12, 45.666, true, '2015-10-01', 'josh1')");
         Jdbc.update("INSERT INTO PUBLIC.TEST_TABLE (a, b, c, d, e, f, g, h, i) VALUES (3, 'a', 1234567890123444, 15.5, 20.12, 45.666, true, '2015-10-01', 'josh1')");
 
-
-
-        Jdbc.asyncQuery("SELECT * FROM PUBLIC.TEST_TABLE", Row::asMap, m -> {
-
+        final CountDownLatch latch = new CountDownLatch(3);
+        Jdbc.streamType("SELECT a,b,c,d,e,f,g,h,i FROM PUBLIC.TEST_TABLE", TableData.class, m -> {
+            System.out.println(m);
+            latch.countDown();
         });
 
-        Thread.sleep(5000);
-
-
+        if (!latch.await(5, TimeUnit.SECONDS)) {
+            fail("Wait timeout");
+        }
     }
+
+    @Test
+    public void streamRows() throws InterruptedException {
+        Jdbc.update("INSERT INTO PUBLIC.TEST_TABLE (a, b, c, d, e, f, g, h, i) VALUES (1, 'a', 1234567890123444, 15.5, 20.12, 45.666, true, '2015-10-01', 'josh1')");
+
+
+        final CountDownLatch latch = new CountDownLatch(1);
+        Jdbc.stream("SELECT * FROM PUBLIC.TEST_TABLE", row -> {
+            System.out.println(row);
+            assertNotNull(row);
+            latch.countDown();
+        });
+
+        if (!latch.await(5, TimeUnit.SECONDS)) {
+            fail("Wait timeout");
+        }
+    }
+
+    @Test
+    public void asyncQuery() throws InterruptedException {
+        Jdbc.update("INSERT INTO PUBLIC.TEST_TABLE (a, b, c, d, e, f, g, h, i) VALUES (1, 'a', 1234567890123444, 15.5, 20.12, 45.666, true, '2015-10-01', 'josh1')");
+
+
+        final CountDownLatch latch = new CountDownLatch(1);
+        Jdbc.streamMapping("SELECT * FROM PUBLIC.TEST_TABLE", Row::asMap, m -> {
+            assertEquals(9, m.size());
+            latch.countDown();
+        });
+
+        if (!latch.await(5, TimeUnit.SECONDS)) {
+            fail("Wait timeout");
+        }
+    }
+
+    @Test
+    public void rows() throws InterruptedException {
+        Jdbc.update("INSERT INTO PUBLIC.TEST_TABLE (a, b, c, d, e, f, g, h, i) VALUES (1, 'a', 1234567890123444, 15.5, 20.12, 45.666, true, '2015-10-01', 'josh1')");
+
+        final CountDownLatch latch = new CountDownLatch(1);
+        Jdbc.asyncQuery("SELECT * FROM PUBLIC.TEST_TABLE", rows -> {
+            assertEquals(1, rows.size());
+            assertTrue(rows.first().isPresent());
+            latch.countDown();
+        });
+
+        if (!latch.await(5, TimeUnit.SECONDS)) {
+            fail("Wait timeout");
+        }
+    }
+
 
 }

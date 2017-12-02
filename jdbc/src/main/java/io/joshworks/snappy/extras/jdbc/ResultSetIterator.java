@@ -1,6 +1,5 @@
-package io.joshworks.snappy.extras.jdbc.stream;
+package io.joshworks.snappy.extras.jdbc;
 
-import io.joshworks.snappy.extras.jdbc.JdbcException;
 import org.apache.commons.dbutils.QueryRunner;
 
 import java.io.Closeable;
@@ -10,7 +9,7 @@ import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.util.Iterator;
 
-public class ResultSetIterator extends QueryRunner implements Iterator<Row>, Closeable {
+class ResultSetIterator extends QueryRunner implements Iterator<Row>, Closeable {
 
     private final Object[] params;
     private ResultSet rs;
@@ -18,7 +17,7 @@ public class ResultSetIterator extends QueryRunner implements Iterator<Row>, Clo
     private Connection connection;
     private String sql;
 
-    public ResultSetIterator(Connection connection, String sql, Object[] params) {
+    ResultSetIterator(Connection connection, String sql, Object[] params) {
         assert connection != null;
         assert sql != null;
         this.connection = connection;
@@ -26,7 +25,7 @@ public class ResultSetIterator extends QueryRunner implements Iterator<Row>, Clo
         this.params = params == null ? new Object[]{} : params;
     }
 
-    public void init() {
+    void init() {
         try {
             this.ps = this.prepareStatement(connection, sql);
             this.fillStatement(this.ps, params);
@@ -58,7 +57,6 @@ public class ResultSetIterator extends QueryRunner implements Iterator<Row>, Clo
 
     @Override
     public void close() {
-        System.out.println("Closing");
         if (rs != null) {
             try {
                 rs.close();

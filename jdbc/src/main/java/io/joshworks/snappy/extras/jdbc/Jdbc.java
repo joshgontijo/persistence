@@ -19,8 +19,6 @@ package io.joshworks.snappy.extras.jdbc;
 
 import com.zaxxer.hikari.HikariConfig;
 import com.zaxxer.hikari.HikariDataSource;
-import io.joshworks.snappy.extras.jdbc.stream.ResultSetIterator;
-import io.joshworks.snappy.extras.jdbc.stream.Row;
 import org.apache.commons.dbutils.QueryRunner;
 import org.apache.commons.dbutils.ResultSetHandler;
 import org.slf4j.Logger;
@@ -35,6 +33,7 @@ import java.io.InputStreamReader;
 import java.io.UncheckedIOException;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
+import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.util.Objects;
 import java.util.Properties;
@@ -63,8 +62,12 @@ public class Jdbc {
     private static ExecutorService executor = Executors.newFixedThreadPool(5);
 
     public static synchronized void init(HikariDataSource ds) {
+        if (dataSource != null) {
+            close();
+        }
         dataSource = ds;
         queryRunner = new QueryRunner(ds);
+        Runtime.getRuntime().addShutdownHook(new Thread(Jdbc::close));
     }
 
     public static synchronized void init(Properties properties) {
@@ -93,6 +96,7 @@ public class Jdbc {
 
     private static void shutdownExecutor() {
         try {
+            executor.shutdown();
             if (!executor.awaitTermination(10, TimeUnit.SECONDS)) {
                 executor.shutdownNow();
             }
@@ -152,24 +156,16 @@ public class Jdbc {
         }
     }
 
-    public static <T> T query(String sql, ResultSetHandler<T> rsh, Object... params) {
+    public static <T> T query(String sql, Function<ResultSet, T> mapper, Object... params) {
         try {
             params = params == null ? new Object[]{} : params;
-            return queryRunner.query(sql, rsh, params);
+            return queryRunner.query(sql, mapper::apply, params);
         } catch (SQLException e) {
             throw new JdbcException(e);
         }
     }
 
-    public static <T> T query(String sql, ResultSetHandler<T> rsh) {
-        try {
-            return queryRunner.query(sql, rsh);
-        } catch (SQLException e) {
-            throw new JdbcException(e);
-        }
-    }
-
-    public static Stream<Row> query(String sql, Object... params) {
+    public static Stream<Row> stream(String sql, Object... params) {
         try {
             ResultSetIterator resultSetIterator = new ResultSetIterator(dataSource.getConnection(), sql, params);
             return StreamSupport.stream(Spliterators.spliteratorUnknownSize(resultSetIterator, Spliterator.NONNULL | Spliterator.ORDERED), false)
@@ -193,14 +189,6 @@ public class Jdbc {
     public static int update(String sql) {
         try {
             return queryRunner.update(sql);
-        } catch (SQLException e) {
-            throw new JdbcException(e);
-        }
-    }
-
-    public static int update(String sql, Object param) {
-        try {
-            return queryRunner.update(sql, param);
         } catch (SQLException e) {
             throw new JdbcException(e);
         }
@@ -267,30 +255,66 @@ public class Jdbc {
     }
 
     //------- Async ---------
-    public static CompletableFuture<int[]> asyncBatch(String sql, Object[][] params) {
-        return CompletableFuture.supplyAsync(() -> Jdbc.batch(sql, params), executor);
+    public static void asyncBatch(String sql, Object[][] params) {
+        asyncBatch(sql, logErrorHandler(sql), params);
     }
 
-    public static <T> CompletableFuture<T> asyncQuery(String sql, ResultSetHandler<T> rsh, Object... params) {
-        return CompletableFuture.supplyAsync(() -> Jdbc.query(sql, rsh, params), executor);
+    public static void asyncBatch(String sql, Consumer<Exception> onFailed, Object[][] params) {
+        runAsync(() -> Jdbc.batch(sql, params), onFailed);
     }
 
-    public static void asyncQuery(String sql, Consumer<Row> consumer, Object... params) {
-        asyncQuery(sql, r -> r, consumer, params);
+    public static void asyncQuery(String sql, Consumer<Rows> consumer, Object... params) {
+        asyncQuery(sql, consumer, logErrorHandler(sql), params);
     }
 
-    public static <R> void asyncQuery(String sql, Function<Row, ? extends R> mapper, Consumer<R> consumer, Object... params) {
-        CompletableFuture.runAsync(() -> Jdbc.query(sql, params)
-                .map(mapper)
-                .forEach(consumer), executor);
+    public static void asyncQuery(String sql, Consumer<Rows> consumer, Consumer<Exception> onFailed, Object... params) {
+        runAsync(() -> {
+            Rows rows = Jdbc.query(sql, Rows::fromResultSet, params);
+            consumer.accept(rows);
+        }, onFailed);
     }
 
-    public static CompletableFuture<Integer> asyncUpdate(String sql) {
-        return CompletableFuture.supplyAsync(() -> Jdbc.update(sql), executor);
+    //With ResultSet
+    public static <T> void asyncQueryMapping(String sql, Function<ResultSet, T> mapper, Consumer<T> consumer, Object... params) {
+        asyncQueryMapping(sql, mapper, consumer, logErrorHandler(sql), params);
     }
 
-    public static CompletableFuture<Integer> asyncUpdate(String sql, Object param) {
-        return CompletableFuture.supplyAsync(() -> Jdbc.update(sql, param), executor);
+    public static <T> void asyncQueryMapping(String sql, Function<ResultSet, T> mapper, Consumer<T> consumer, Consumer<Exception> onFailed, Object... params) {
+        runAsync(() -> {
+            T result = Jdbc.query(sql, mapper, params);
+            consumer.accept(result);
+        }, onFailed);
+    }
+
+    //Row consumer
+    public static void stream(String sql, Consumer<Row> consumer, Object... params) {
+        stream(sql, consumer, logErrorHandler(sql), params);
+    }
+
+    public static void stream(String sql, Consumer<Row> consumer, Consumer<Exception> onFailed, Object... params) {
+        streamMapping(sql, r -> r, consumer, onFailed, params);
+    }
+
+    //Mapping Row
+    public static <R> void streamMapping(String sql, Function<Row, ? extends R> mapper, Consumer<R> consumer, Object... params) {
+        streamMapping(sql, mapper, consumer, logErrorHandler(sql), params);
+    }
+
+    public static <R> void streamMapping(String sql, Function<Row, ? extends R> mapper, Consumer<R> consumer, Consumer<Exception> onFailed, Object... params) {
+        runAsync(() -> Jdbc.stream(sql, params).map(mapper).forEach(consumer), onFailed);
+    }
+
+    //Mapping Row with Type
+    public static <R> void streamType(String sql, Class<R> type, Consumer<R> consumer, Object... params) {
+        streamType(sql, type, consumer, logErrorHandler(sql), params);
+    }
+
+    public static <R> void streamType(String sql, Class<R> type, Consumer<R> consumer, Consumer<Exception> onFailed, Object... params) {
+        runAsync(() -> Jdbc.stream(sql, params).map(r -> r.as(type)).forEach(consumer), onFailed);
+    }
+
+    public static void asyncUpdate(String sql) {
+        runAsync(() -> Jdbc.update(sql), logErrorHandler(sql));
     }
 
     public static CompletableFuture<Integer> asyncUpdate(String sql, Object... params) {
@@ -302,11 +326,25 @@ public class Jdbc {
         return CompletableFuture.supplyAsync(() -> Jdbc.insert(sql, rsh), executor);
     }
 
-    public static <T> CompletableFuture<T> asyncIinsert(String sql, ResultSetHandler<T> rsh, Object... params) {
+    public static <T> CompletableFuture<T> asyncInsert(String sql, ResultSetHandler<T> rsh, Object... params) {
         return CompletableFuture.supplyAsync(() -> Jdbc.insert(sql, rsh, params), executor);
     }
 
     public static <T> CompletableFuture<T> asyncInsertBatch(String sql, ResultSetHandler<T> rsh, Object[][] params) {
         return CompletableFuture.supplyAsync(() -> Jdbc.insertBatch(sql, rsh, params), executor);
     }
+
+    private static Consumer<Exception> logErrorHandler(String sql) {
+        return (t) -> logger.error("Error while executing async query [" + sql + "]", t);
+    }
+
+    private static void runAsync(Runnable runnable, Consumer<Exception> onError) {
+        CompletableFuture
+                .runAsync(runnable)
+                .exceptionally(e -> {
+                    onError.accept((Exception) e);
+                    return null;
+                });
+    }
+
 }
