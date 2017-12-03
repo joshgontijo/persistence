@@ -94,6 +94,26 @@ public class JdbcTest {
     }
 
     @Test
+    public void insertAsync() throws InterruptedException {
+        final CountDownLatch latch = new CountDownLatch(1);
+        Jdbc.asyncInsert("INSERT INTO PUBLIC.TEST_TABLE (a, b, c, d, e, f, g, h, i) VALUES (1, 'a', 1234567890123444, 15.5, 20.12, 45.666, true, '2015-10-01', 'josh1')",
+                Throwable::printStackTrace,
+                r -> {
+                    latch.countDown();
+                    return null;
+                });
+
+        if (!latch.await(5, TimeUnit.SECONDS)) {
+            fail("Wait timeout");
+        }
+
+        Rows rows = Jdbc.query("SELECT * FROM PUBLIC.TEST_TABLE");
+        assertEquals(1, rows.size());
+
+
+    }
+
+    @Test
     public void rows() throws InterruptedException {
         Jdbc.update("INSERT INTO PUBLIC.TEST_TABLE (a, b, c, d, e, f, g, h, i) VALUES (1, 'a', 1234567890123444, 15.5, 20.12, 45.666, true, '2015-10-01', 'josh1')");
 

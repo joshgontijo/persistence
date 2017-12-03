@@ -20,7 +20,6 @@ package io.joshworks.snappy.extras.jdbc;
 import com.zaxxer.hikari.HikariConfig;
 import com.zaxxer.hikari.HikariDataSource;
 import org.apache.commons.dbutils.QueryRunner;
-import org.apache.commons.dbutils.ResultSetHandler;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -45,6 +44,7 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Consumer;
 import java.util.function.Function;
+import java.util.function.IntConsumer;
 import java.util.stream.Stream;
 import java.util.stream.StreamSupport;
 
@@ -146,8 +146,6 @@ public class Jdbc {
         shutdownExecutor();
     }
 
-    // BeanHandler<Exchange> exchangeBeanHandler = new BeanHandler<>(Exchange.class);
-    // ResultSetHandler<List<Exchange>> h = new BeanListHandler<Exchange>(Exchange.class);
     public static int[] batch(String sql, Object[][] params) {
         try {
             return queryRunner.batch(sql, params);
@@ -160,6 +158,15 @@ public class Jdbc {
         try {
             params = params == null ? new Object[]{} : params;
             return queryRunner.query(sql, mapper::apply, params);
+        } catch (SQLException e) {
+            throw new JdbcException(e);
+        }
+    }
+
+    public static Rows query(String sql, Object... params) {
+        try {
+            params = params == null ? new Object[]{} : params;
+            return queryRunner.query(sql, Rows::fromResultSet, params);
         } catch (SQLException e) {
             throw new JdbcException(e);
         }
@@ -202,25 +209,22 @@ public class Jdbc {
         }
     }
 
-    public static <T> T insert(String sql, ResultSetHandler<T> rsh) {
+    public static void insert(String sql, Object... params) {
+        insert(sql, r -> r, params);
+    }
+
+
+    public static <T> T insert(String sql, Function<ResultSet, T> mapper, Object... params) {
         try {
-            return queryRunner.insert(sql, rsh);
+            return queryRunner.insert(sql, mapper::apply, params);
         } catch (SQLException e) {
             throw new JdbcException(e);
         }
     }
 
-    public static <T> T insert(String sql, ResultSetHandler<T> rsh, Object... params) {
+    public static <T> T insertBatch(String sql, Function<ResultSet, T> mapper, Object[][] params) {
         try {
-            return queryRunner.insert(sql, rsh, params);
-        } catch (SQLException e) {
-            throw new JdbcException(e);
-        }
-    }
-
-    public static <T> T insertBatch(String sql, ResultSetHandler<T> rsh, Object[][] params) {
-        try {
-            return queryRunner.insertBatch(sql, rsh, params);
+            return queryRunner.insertBatch(sql, mapper::apply, params);
         } catch (SQLException e) {
             throw new JdbcException(e);
         }
@@ -256,7 +260,7 @@ public class Jdbc {
 
     //------- Async ---------
     public static void asyncBatch(String sql, Object[][] params) {
-        asyncBatch(sql, logErrorHandler(sql), params);
+        asyncBatch(sql, Jdbc::log, params);
     }
 
     public static void asyncBatch(String sql, Consumer<Exception> onFailed, Object[][] params) {
@@ -264,7 +268,7 @@ public class Jdbc {
     }
 
     public static void asyncQuery(String sql, Consumer<Rows> consumer, Object... params) {
-        asyncQuery(sql, consumer, logErrorHandler(sql), params);
+        asyncQuery(sql, consumer, Jdbc::log, params);
     }
 
     public static void asyncQuery(String sql, Consumer<Rows> consumer, Consumer<Exception> onFailed, Object... params) {
@@ -276,7 +280,7 @@ public class Jdbc {
 
     //With ResultSet
     public static <T> void asyncQueryMapping(String sql, Function<ResultSet, T> mapper, Consumer<T> consumer, Object... params) {
-        asyncQueryMapping(sql, mapper, consumer, logErrorHandler(sql), params);
+        asyncQueryMapping(sql, mapper, consumer, Jdbc::log, params);
     }
 
     public static <T> void asyncQueryMapping(String sql, Function<ResultSet, T> mapper, Consumer<T> consumer, Consumer<Exception> onFailed, Object... params) {
@@ -286,18 +290,18 @@ public class Jdbc {
         }, onFailed);
     }
 
-    //Row consumer
+    //Stream
     public static void stream(String sql, Consumer<Row> consumer, Object... params) {
-        stream(sql, consumer, logErrorHandler(sql), params);
+        stream(sql, consumer, Jdbc::log, params);
     }
 
     public static void stream(String sql, Consumer<Row> consumer, Consumer<Exception> onFailed, Object... params) {
         streamMapping(sql, r -> r, consumer, onFailed, params);
     }
 
-    //Mapping Row
+    //Stream Mapping
     public static <R> void streamMapping(String sql, Function<Row, ? extends R> mapper, Consumer<R> consumer, Object... params) {
-        streamMapping(sql, mapper, consumer, logErrorHandler(sql), params);
+        streamMapping(sql, mapper, consumer, Jdbc::log, params);
     }
 
     public static <R> void streamMapping(String sql, Function<Row, ? extends R> mapper, Consumer<R> consumer, Consumer<Exception> onFailed, Object... params) {
@@ -306,36 +310,51 @@ public class Jdbc {
 
     //Mapping Row with Type
     public static <R> void streamType(String sql, Class<R> type, Consumer<R> consumer, Object... params) {
-        streamType(sql, type, consumer, logErrorHandler(sql), params);
+        streamType(sql, type, consumer, Jdbc::log, params);
     }
 
     public static <R> void streamType(String sql, Class<R> type, Consumer<R> consumer, Consumer<Exception> onFailed, Object... params) {
         runAsync(() -> Jdbc.stream(sql, params).map(r -> r.as(type)).forEach(consumer), onFailed);
     }
 
-    public static void asyncUpdate(String sql) {
-        runAsync(() -> Jdbc.update(sql), logErrorHandler(sql));
+    public static void asyncUpdate(String sql, Object... params) {
+        asyncUpdate(sql, i -> {
+        }, params);
     }
 
-    public static CompletableFuture<Integer> asyncUpdate(String sql, Object... params) {
-        return CompletableFuture.supplyAsync(() -> Jdbc.update(sql, params), executor);
+    public static void asyncUpdate(String sql, IntConsumer consumer, Object... params) {
+        asyncUpdate(sql, consumer, Jdbc::log, params);
     }
 
-    public static <T> CompletableFuture<T> asyncInsert(String sql, ResultSetHandler<T> rsh) {
-
-        return CompletableFuture.supplyAsync(() -> Jdbc.insert(sql, rsh), executor);
+    public static void asyncUpdate(String sql, IntConsumer consumer, Consumer<Exception> onFailed, Object... params) {
+        runAsync(() -> {
+            int updated = Jdbc.update(sql, params);
+            consumer.accept(updated);
+        }, onFailed);
     }
 
-    public static <T> CompletableFuture<T> asyncInsert(String sql, ResultSetHandler<T> rsh, Object... params) {
-        return CompletableFuture.supplyAsync(() -> Jdbc.insert(sql, rsh, params), executor);
+    public static void asyncInsert(String sql, Object... params) {
+        asyncInsert(sql, Jdbc::log, params);
     }
 
-    public static <T> CompletableFuture<T> asyncInsertBatch(String sql, ResultSetHandler<T> rsh, Object[][] params) {
-        return CompletableFuture.supplyAsync(() -> Jdbc.insertBatch(sql, rsh, params), executor);
+    public static void asyncInsert(String sql, Consumer<Exception> onError, Object... params) {
+        asyncInsert(sql, onError, r -> r, params);
     }
 
-    private static Consumer<Exception> logErrorHandler(String sql) {
-        return (t) -> logger.error("Error while executing async query [" + sql + "]", t);
+    public static <T> void asyncInsert(String sql, Consumer<Exception> onError, Function<ResultSet, T> mapper, Object... params) {
+        runAsync(() -> Jdbc.insert(sql, mapper, params), onError);
+    }
+
+    public static <T> void asyncInsertBatch(String sql, Consumer<Exception> onError, Object[][] params) {
+        asyncInsertBatch(sql, onError, r -> r, params);
+    }
+
+    public static <T> void asyncInsertBatch(String sql, Consumer<Exception> onError, Function<ResultSet, T> mapper, Object[][] params) {
+        runAsync(() -> Jdbc.insertBatch(sql, mapper, params), onError);
+    }
+
+    public static void log(Exception e) {
+        logger.error("Error while executing async JDBC operation", e);
     }
 
     private static void runAsync(Runnable runnable, Consumer<Exception> onError) {
