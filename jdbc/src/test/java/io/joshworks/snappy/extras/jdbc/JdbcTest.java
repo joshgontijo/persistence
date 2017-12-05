@@ -7,6 +7,7 @@ import org.junit.Test;
 
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
+import java.util.stream.Stream;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotNull;
@@ -109,8 +110,17 @@ public class JdbcTest {
 
         Rows rows = Jdbc.query("SELECT * FROM PUBLIC.TEST_TABLE");
         assertEquals(1, rows.size());
+    }
 
+    @Test
+    public void stream() {
+        Jdbc.update("INSERT INTO PUBLIC.TEST_TABLE (a, b, c, d, e, f, g, h, i) VALUES (1, 'a', 1234567890123444, 15.5, 20.12, 45.666, true, '2015-10-01', 'josh1')");
+        Jdbc.update("INSERT INTO PUBLIC.TEST_TABLE (a, b, c, d, e, f, g, h, i) VALUES (2, 'a', 1234567890123444, 15.5, 20.12, 45.666, true, '2015-10-01', 'josh1')");
+        Jdbc.update("INSERT INTO PUBLIC.TEST_TABLE (a, b, c, d, e, f, g, h, i) VALUES (3, 'a', 1234567890123444, 15.5, 20.12, 45.666, true, '2015-10-01', 'josh1')");
 
+        try(Stream<Row> stream = Jdbc.stream("SELECT * FROM PUBLIC.TEST_TABLE")) {
+            assertEquals(3, stream.count());
+        }
     }
 
     @Test

@@ -173,8 +173,12 @@ public class Jdbc {
     }
 
     public static Stream<Row> stream(String sql, Object... params) {
+        return stream(sql, 0, params);
+    }
+
+    public static Stream<Row> stream(String sql, int fetchSize, Object[] params) {
         try {
-            ResultSetIterator resultSetIterator = new ResultSetIterator(dataSource.getConnection(), sql, params);
+            ResultSetIterator resultSetIterator = new ResultSetIterator(dataSource.getConnection(), sql, fetchSize, params);
             return StreamSupport.stream(Spliterators.spliteratorUnknownSize(resultSetIterator, Spliterator.NONNULL | Spliterator.ORDERED), false)
                     .onClose(asUncheckedRunnable(resultSetIterator));
 

@@ -8,6 +8,7 @@ import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.util.Iterator;
+import java.util.Objects;
 
 class ResultSetIterator extends QueryRunner implements Iterator<Row>, Closeable {
 
@@ -16,18 +17,25 @@ class ResultSetIterator extends QueryRunner implements Iterator<Row>, Closeable 
     private PreparedStatement ps;
     private Connection connection;
     private String sql;
+    private final int fetchSize; //default from JDBC
 
-    ResultSetIterator(Connection connection, String sql, Object[] params) {
-        assert connection != null;
-        assert sql != null;
+    ResultSetIterator(Connection connection, String sql,  Object[] params) {
+        this(connection, sql, 0, params);
+    }
+
+    ResultSetIterator(Connection connection, String sql, int fetchSize, Object[] params) {
+        Objects.requireNonNull(connection, "Connection must be provided");
+        Objects.requireNonNull(sql, "SQL query must be provided");
+        this.fetchSize = fetchSize;
         this.connection = connection;
         this.sql = sql;
         this.params = params == null ? new Object[]{} : params;
     }
 
-    void init() {
+    private void init() {
         try {
             this.ps = this.prepareStatement(connection, sql);
+            ps.setFetchSize(fetchSize);
             this.fillStatement(this.ps, params);
             rs = this.wrap(this.ps.executeQuery());
 
