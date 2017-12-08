@@ -1,4 +1,4 @@
-package io.joshworks.snappy.extras.jdbc;
+package io.joshworks.persistence.jdbc;
 
 import java.lang.reflect.Constructor;
 import java.lang.reflect.InvocationTargetException;

@@ -15,7 +15,7 @@
  *
  */
 
-package io.joshworks.snappy.extensions.cblite;
+package io.joshworks.persistence.cblite;
 
 import com.couchbase.lite.Database;
 import com.couchbase.lite.DatabaseOptions;

@@ -1,4 +1,4 @@
-package io.joshworks.snappy.extras.jdbc;
+package io.joshworks.persistence.jdbc;
 
 import java.math.BigDecimal;
 import java.sql.Timestamp;

@@ -1,4 +1,4 @@
-package io.joshworks.snappy.extras.jdbc;
+package io.joshworks.persistence.jdbc;
 
 import org.apache.commons.dbutils.QueryRunner;
 

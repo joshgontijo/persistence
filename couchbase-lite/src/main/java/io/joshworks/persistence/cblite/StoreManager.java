@@ -1,4 +1,4 @@
-package io.joshworks.snappy.extensions.cblite;
+package io.joshworks.persistence.cblite;
 
 import com.couchbase.lite.Manager;
 import org.slf4j.Logger;

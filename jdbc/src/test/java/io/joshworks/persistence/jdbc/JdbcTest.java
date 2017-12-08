@@ -1,4 +1,4 @@
-package io.joshworks.snappy.extras.jdbc;
+package io.joshworks.persistence.jdbc;
 
 import org.junit.After;
 import org.junit.AfterClass;
@@ -81,7 +81,6 @@ public class JdbcTest {
     @Test
     public void asyncQuery() throws InterruptedException {
         Jdbc.update("INSERT INTO PUBLIC.TEST_TABLE (a, b, c, d, e, f, g, h, i) VALUES (1, 'a', 1234567890123444, 15.5, 20.12, 45.666, true, '2015-10-01', 'josh1')");
-
 
         final CountDownLatch latch = new CountDownLatch(1);
         Jdbc.streamMapping("SELECT * FROM PUBLIC.TEST_TABLE", Row::asMap, m -> {

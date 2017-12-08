@@ -1,4 +1,4 @@
-package io.joshworks.snappy.extras.jdbc;
+package io.joshworks.persistence.jdbc;
 
 /*
  * Slightly modified version of the com.ibatis.common.jdbc.ScriptRunner class
