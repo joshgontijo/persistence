@@ -39,6 +39,16 @@ public class StoreManager {
 
     private static final Object LOCK = new Object();
 
+    public static void defaultStore(MVStore.Builder mvStore) {
+        Objects.requireNonNull(mvStore, "MVStore cannot be null");
+        synchronized (LOCK) {
+            if(store != null){
+                commitAndClose();
+                store = mvStore.open();
+            }
+        }
+    }
+
     public static void shutdown() {
         if (store != null) {
             synchronized (LOCK) {
@@ -52,16 +62,6 @@ public class StoreManager {
         if (store != null && !store.isClosed()) {
             store.commit();
             store.close();
-        }
-    }
-
-    public static void defaultStore(MVStore.Builder mvStore) {
-        Objects.requireNonNull(mvStore, "MVStore cannot be null");
-        synchronized (LOCK) {
-            if(store != null){
-                commitAndClose();
-                store = mvStore.open();
-            }
         }
     }
 
@@ -136,7 +136,7 @@ public class StoreManager {
         }
     }
 
-    private static void createFolder(String dirPath) throws Exception {
+    private static void createFolder(String dirPath) {
         File dataDir = new File(dirPath);
         if (!dataDir.exists()) {
             if (!dataDir.mkdirs()) {

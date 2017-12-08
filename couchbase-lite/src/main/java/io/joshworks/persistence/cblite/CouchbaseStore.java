@@ -53,7 +53,7 @@ public class CouchbaseStore<T> implements Closeable {
 
     private static final String KEY = "password";
     private static final String LOCATION = "location";
-    private static final String DEFAULT_LOCATION = System.getProperty("user.home") + File.separator + "snappy" + File.separator + "cblite";
+    private static final String DEFAULT_LOCATION = System.getProperty("user.home") + File.separator + ".cblite";
     private static final String DEFAULT_KEY = "admin";
 
     private final Class<T> type;
@@ -107,7 +107,7 @@ public class CouchbaseStore<T> implements Closeable {
         return manager;
     }
 
-    public void create(String id, T object) {
+    public void insert(String id, T object) {
         try {
             Map<String, Object> objectMap = toJsonMap(object);
             Database database = getDatabase(databaseName);
